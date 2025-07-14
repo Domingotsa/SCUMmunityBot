@@ -1,4 +1,918 @@
 [
+  
+  {
+    "id": "inject-event",
+    "type": "inject",
+    "z": "coin-system",
+    "name": "Simula evento (test)",
+    "props": [
+      {"p":"payload.type","v":"kill","vt":"str"},
+      {"p":"payload.discord_id","v":"123456789012345678","vt":"str"},
+      {"p":"payload.username","v":"TestUser","vt":"str"},
+      {"p":"payload.amount","v":"10","vt":"num"}
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 120,
+    "y": 200,
+    "wires": [["assign-coins"]]
+  },
+  {
+    "id": "assign-coins",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Assegna monete",
+    "func": "// msg.payload: {type, discord_id, username, amount}\nmsg.topic = \"UPDATE users SET coins = coins + ? WHERE discord_id = ?\";\nmsg.params = [msg.payload.amount, msg.payload.discord_id];\nmsg.trans = {\n    user: msg.payload.discord_id,\n    type: msg.payload.type,\n    amount: msg.payload.amount,\n    description: msg.payload.type === 'kill' ? 'Uccisione' : 'Tempo online',\n    username: msg.payload.username\n};\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 350,
+    "y": 200,
+    "wires": [["sqlite-update-coins"]]
+  },
+  {
+    "id": "sqlite-update-coins",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Aggiorna saldo",
+    "x": 570,
+    "y": 200,
+    "wires": [["log-transaction"]]
+  },
+  {
+    "id": "log-transaction",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Registra transazione",
+    "func": "msg.topic = \"INSERT INTO transactions (user_id, type, amount, timestamp, description) VALUES ((SELECT id FROM users WHERE discord_id = ?), ?, ?, datetime('now'), ?)\";\nmsg.params = [msg.trans.user, msg.trans.type, msg.trans.amount, msg.trans.description];\nmsg.payload = null;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 800,
+    "y": 200,
+    "wires": [["sqlite-log-trans"]]
+  },
+  {
+    "id": "sqlite-log-trans",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Log transazione",
+    "x": 1050,
+    "y": 200,
+    "wires": []
+  },
+
+  
+  {
+    "id": "discord-cmd-veicoli",
+    "type": "discordMessage",
+    "z": "coin-system",
+    "name": "Comando veicoli",
+    "token": "<INSERISCI_TOKEN_BOT_DISCORD>",
+    "x": 160,
+    "y": 300,
+    "wires": [["parse-veicoli-cmd"]]
+  },
+  {
+    "id": "parse-veicoli-cmd",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Parsa comando",
+    "func": "// msg.content: es. '!acquista auto', '!noleggia barca', '!veicoli'\nconst content = msg.content.trim().toLowerCase();\nif (content.startsWith('!acquista ')) {\n    msg.action = 'acquista';\n    msg.vehicle = content.replace('!acquista ', '');\n    return [msg, null, null];\n} else if (content.startsWith('!noleggia ')) {\n    msg.action = 'noleggia';\n    msg.vehicle = content.replace('!noleggia ', '');\n    return [null, msg, null];\n} else if (content === '!veicoli') {\n    return [null, null, msg];\n}\nreturn [null, null, null];",
+    "outputs": 3,
+    "noerr": 0,
+    "x": 370,
+    "y": 300,
+    "wires": [["acquista-veicolo"],["noleggia-veicolo"],["lista-veicoli"]]
+  },
+  {
+    "id": "acquista-veicolo",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Scala monete e registra acquisto",
+    "func": "// Esempio: ogni acquisto costa 200 monete\nmsg.topic = \"UPDATE users SET coins = coins - 200 WHERE discord_id = ? AND coins >= 200\";\nmsg.params = [msg.author.id];\nmsg.vehicleType = msg.vehicle;\nmsg.isNoleggio = false;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 650,
+    "y": 260,
+    "wires": [["sqlite-acquista"]]
+  },
+  {
+    "id": "sqlite-acquista",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Scala monete (acquisto)",
+    "x": 900,
+    "y": 260,
+    "wires": [["registra-veicolo"]]
+  },
+  {
+    "id": "registra-veicolo",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Registra veicolo acquistato",
+    "func": "msg.topic = \"INSERT INTO vehicles (user_id, type, status) VALUES ((SELECT id FROM users WHERE discord_id = ?), ?, 'owned')\";\nmsg.params = [msg.author.id, msg.vehicleType];\nmsg.payload = `<@${msg.author.id}> hai acquistato un ${msg.vehicleType}!`;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 1150,
+    "y": 260,
+    "wires": [["sqlite-registra-veicolo"]]
+  },
+  {
+    "id": "sqlite-registra-veicolo",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Registra veicolo",
+    "x": 1400,
+    "y": 260,
+    "wires": [["discord-cmd-veicoli"]]
+  },
+  {
+    "id": "noleggia-veicolo",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Scala monete e registra noleggio",
+    "func": "// Esempio: ogni noleggio costa 50 monete, dura 24h\nmsg.topic = \"UPDATE users SET coins = coins - 50 WHERE discord_id = ? AND coins >= 50\";\nmsg.params = [msg.author.id];\nmsg.vehicleType = msg.vehicle;\nmsg.isNoleggio = true;\nmsg.rentedUntil = new Date(Date.now() + 24*60*60*1000).toISOString();\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 650,
+    "y": 340,
+    "wires": [["sqlite-noleggia"]]
+  },
+  {
+    "id": "sqlite-noleggia",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Scala monete (noleggio)",
+    "x": 900,
+    "y": 340,
+    "wires": [["registra-noleggio"]]
+  },
+  {
+    "id": "registra-noleggio",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Registra veicolo noleggiato",
+    "func": "msg.topic = \"INSERT INTO vehicles (user_id, type, status, rented_until) VALUES ((SELECT id FROM users WHERE discord_id = ?), ?, 'rented', ?)\";\nmsg.params = [msg.author.id, msg.vehicleType, msg.rentedUntil];\nmsg.payload = `<@${msg.author.id}> hai noleggiato un ${msg.vehicleType} per 24 ore!`;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 1150,
+    "y": 340,
+    "wires": [["sqlite-registra-noleggio"]]
+  },
+  {
+    "id": "sqlite-registra-noleggio",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Registra noleggio",
+    "x": 1400,
+    "y": 340,
+    "wires": [["discord-cmd-veicoli"]]
+  },
+  {
+    "id": "lista-veicoli",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Query lista veicoli",
+    "func": "msg.topic = \"SELECT type, status, rented_until FROM vehicles WHERE user_id = (SELECT id FROM users WHERE discord_id = ?)\";\nmsg.params = [msg.author.id];\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 650,
+    "y": 420,
+    "wires": [["sqlite-lista-veicoli"]]
+  },
+  {
+    "id": "sqlite-lista-veicoli",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Get lista veicoli",
+    "x": 900,
+    "y": 420,
+    "wires": [["reply-lista-veicoli"]]
+  },
+  {
+    "id": "reply-lista-veicoli",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Rispondi lista veicoli",
+    "func": "if (msg.payload && msg.payload.length > 0) {\n    let lista = msg.payload.map(v => `- ${v.type} (${v.status}${v.status==='rented' ? ', fino a ' + v.rented_until : ''})`).join('\\n');\n    msg.payload = `<@${msg.author.id}> i tuoi veicoli:\\n` + lista;\n} else {\n    msg.payload = `<@${msg.author.id}> non hai veicoli.`;\n}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 1150,
+    "y": 420,
+    "wires": [["discord-cmd-veicoli"]]
+  },
+
+  
+  {
+    "id": "discord-cmd-vip",
+    "type": "discordMessage",
+    "z": "coin-system",
+    "name": "Comando VIP",
+    "token": "<INSERISCI_TOKEN_BOT_DISCORD>",
+    "x": 160,
+    "y": 500,
+    "wires": [["parse-vip-cmd"]]
+  },
+  {
+    "id": "parse-vip-cmd",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Parsa comando VIP",
+    "func": "// Esempio: !vip 123456789012345678 30\nconst content = msg.content.trim();\nif (content.startsWith('!vip ')) {\n    const parts = content.split(' ');\n    if (parts.length === 3) {\n        msg.target_id = parts[1];\n        msg.giorni = parseInt(parts[2]);\n        if (!isNaN(msg.giorni) && msg.giorni > 0) {\n            msg.topic = \"UPDATE users SET vip_until = datetime('now', '+' || ? || ' days') WHERE discord_id = ?\";\n            msg.params = [msg.giorni, msg.target_id];\n            return msg;\n        }\n    }\n}\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 370,
+    "y": 500,
+    "wires": [["sqlite-set-vip"]]
+  },
+  {
+    "id": "sqlite-set-vip",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Setta VIP",
+    "x": 600,
+    "y": 500,
+    "wires": [["reply-vip"]]
+  },
+  {
+    "id": "reply-vip",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Risposta VIP",
+    "func": "msg.payload = `<@${msg.target_id}> ora è VIP per ${msg.giorni} giorni!`;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 820,
+    "y": 500,
+    "wires": [["discord-cmd-vip"]]
+  },
+  {
+    "id": "reminder-vip-inject",
+    "type": "inject",
+    "z": "coin-system",
+    "name": "Controllo giornaliero VIP",
+    "props": [],
+    "repeat": "",
+    "crontab": "0 9 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 180,
+    "y": 600,
+    "wires": [["check-vip-expiring"]]
+  },
+  {
+    "id": "check-vip-expiring",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Query VIP in scadenza",
+    "func": "msg.topic = \"SELECT discord_id, vip_until FROM users WHERE vip_until IS NOT NULL AND vip_until <= datetime('now', '+2 days') AND vip_until > datetime('now')\";\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 420,
+    "y": 600,
+    "wires": [["sqlite-vip-expiring"]]
+  },
+  {
+    "id": "sqlite-vip-expiring",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Get VIP in scadenza",
+    "x": 670,
+    "y": 600,
+    "wires": [["remind-vip"]]
+  },
+  {
+    "id": "remind-vip",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Reminder VIP",
+    "func": "if (msg.payload && msg.payload.length > 0) {\n    msg.payload = msg.payload.map(u => `<@${u.discord_id}> il tuo VIP scade il ${u.vip_until}!`).join('\\n');\n    return msg;\n}\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 900,
+    "y": 600,
+    "wires": [["discord-cmd-vip"]]
+  },
+
+  
+  {
+    "id": "inject-alert",
+    "type": "inject",
+    "z": "coin-system",
+    "name": "Simula evento (test)",
+    "props": [
+      {"p":"payload.type","v":"raid","vt":"str"},
+      {"p":"payload.user","v":"123456789012345678","vt":"str"},
+      {"p":"payload.coords","v":"B3-123,456","vt":"str"}
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 120,
+    "y": 700,
+    "wires": [["format-alert"]]
+  },
+  {
+    "id": "format-alert",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Formatta messaggio alert",
+    "func": "let msgType = msg.payload.type;\nlet user = msg.payload.user;\nlet coords = msg.payload.coords;\nif(msgType === 'raid') {\n    msg.payload = `🚨 RAID in corso! <@${user}> alle coordinate ${coords}`;\n} else if(msgType === 'kill') {\n    msg.payload = `💀 Kill segnalata! <@${user}> alle coordinate ${coords}`;\n} else {\n    msg.payload = `🔔 Evento: ${msgType} - <@${user}> - ${coords}`;\n}\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 350,
+    "y": 700,
+    "wires": [["discord-alert"]]
+  },
+  {
+    "id": "discord-alert",
+    "type": "discordMessage",
+    "z": "coin-system",
+    "name": "Invia alert Discord",
+    "token": "<INSERISCI_TOKEN_BOT_DISCORD>",
+    "x": 600,
+    "y": 700,
+    "wires": [[]]
+  },
+
+
+  {
+    "id": "admin-cmd",
+    "type": "discordMessage",
+    "z": "coin-system",
+    "name": "Comando admin",
+    "token": "<INSERISCI_TOKEN_BOT_DISCORD>",
+    "x": 160,
+    "y": 800,
+    "wires": [["log-admin-cmd"]]
+  },
+  {
+    "id": "log-admin-cmd",
+    "type": "function",
+    "z": "coin-system",
+    "name": "Logga comando admin",
+    "func": "if (msg.content && msg.content.startsWith('!admin')) {\n    msg.topic = \"INSERT INTO admin_logs (admin_id, command, timestamp) VALUES (?, ?, datetime('now'))\";\n    msg.params = [msg.author.id, msg.content];\n    return msg;\n}\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 400,
+    "y": 800,
+    "wires": [["sqlite-log-admin"]]
+  },
+  {
+    "id": "sqlite-log-admin",
+    "type": "sqlite",
+    "z": "coin-system",
+    "mydb": "/data/scummunitybot.db",
+    "name": "Scrivi log admin",
+    "x": 650,
+    "y": 800,
+    "wires": [[]]
+  },
+  
+    {
+        "id": "dashboard-inject-users",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Aggiorna utenti",
+        "props": [],
+        "repeat": "30",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 100,
+        "wires": [["get-users"]]
+      },
+      {
+        "id": "get-users",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Query utenti",
+        "func": "msg.topic = \"SELECT id, discord_id, username, coins, vip_until FROM users ORDER BY coins DESC\";\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 350,
+        "y": 100,
+        "wires": [["sqlite-get-users"]]
+      },
+      {
+        "id": "sqlite-get-users",
+        "type": "sqlite",
+        "z": "dashboard",
+        "mydb": "/data/scummunitybot.db",
+        "name": "Get utenti",
+        "x": 600,
+        "y": 100,
+        "wires": [["format-users"]]
+      },
+      {
+        "id": "format-users",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta utenti",
+        "func": "msg.payload = msg.payload.map(u => ({\n    \"ID\": u.id,\n    \"Discord\": u.discord_id,\n    \"Username\": u.username,\n    \"Monete\": u.coins,\n    \"VIP fino a\": u.vip_until\n}));\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 850,
+        "y": 100,
+        "wires": [["ui-table-users"]]
+      },
+      {
+        "id": "ui-table-users",
+        "type": "ui_table",
+        "z": "dashboard",
+        "group": "ui-group-users",
+        "name": "Utenti",
+        "order": 1,
+        "width": "12",
+        "height": "8",
+        "columns": [],
+        "outputs": 0,
+        "x": 1100,
+        "y": 100,
+        "wires": []
+      },
+     
+      {
+        "id": "dashboard-inject-trans",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Aggiorna transazioni",
+        "props": [],
+        "repeat": "30",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 200,
+        "wires": [["get-trans"]]
+      },
+      {
+        "id": "get-trans",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Query transazioni",
+        "func": "msg.topic = \"SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 50\";\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 350,
+        "y": 200,
+        "wires": [["sqlite-get-trans"]]
+      },
+      {
+        "id": "sqlite-get-trans",
+        "type": "sqlite",
+        "z": "dashboard",
+        "mydb": "/data/scummunitybot.db",
+        "name": "Get transazioni",
+        "x": 600,
+        "y": 200,
+        "wires": [["format-trans"]]
+      },
+      {
+        "id": "format-trans",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta transazioni",
+        "func": "msg.payload = msg.payload.map(t => ({\n    \"ID\": t.id,\n    \"UserID\": t.user_id,\n    \"Tipo\": t.type,\n    \"Ammontare\": t.amount,\n    \"Quando\": t.timestamp,\n    \"Descrizione\": t.description\n}));\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 850,
+        "y": 200,
+        "wires": [["ui-table-trans"]]
+      },
+      {
+        "id": "ui-table-trans",
+        "type": "ui_table",
+        "z": "dashboard",
+        "group": "ui-group-trans",
+        "name": "Transazioni",
+        "order": 2,
+        "width": "12",
+        "height": "8",
+        "columns": [],
+        "outputs": 0,
+        "x": 1100,
+        "y": 200,
+        "wires": []
+      },
+    
+      {
+        "id": "dashboard-inject-vehicles",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Aggiorna veicoli",
+        "props": [],
+        "repeat": "30",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 300,
+        "wires": [["get-vehicles"]]
+      },
+      {
+        "id": "get-vehicles",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Query veicoli",
+        "func": "msg.topic = \"SELECT * FROM vehicles ORDER BY user_id\";\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 350,
+        "y": 300,
+        "wires": [["sqlite-get-vehicles"]]
+      },
+      {
+        "id": "sqlite-get-vehicles",
+        "type": "sqlite",
+        "z": "dashboard",
+        "mydb": "/data/scummunitybot.db",
+        "name": "Get veicoli",
+        "x": 600,
+        "y": 300,
+        "wires": [["format-vehicles"]]
+      },
+      {
+        "id": "format-vehicles",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta veicoli",
+        "func": "msg.payload = msg.payload.map(v => ({\n    \"ID\": v.id,\n    \"UserID\": v.user_id,\n    \"Tipo\": v.type,\n    \"Status\": v.status,\n    \"Fino a\": v.rented_until\n}));\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 850,
+        "y": 300,
+        "wires": [["ui-table-vehicles"]]
+      },
+      {
+        "id": "ui-table-vehicles",
+        "type": "ui_table",
+        "z": "dashboard",
+        "group": "ui-group-vehicles",
+        "name": "Veicoli",
+        "order": 3,
+        "width": "12",
+        "height": "8",
+        "columns": [],
+        "outputs": 0,
+        "x": 1100,
+        "y": 300,
+        "wires": []
+      },
+
+      {
+        "id": "dashboard-inject-vip",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Aggiorna VIP",
+        "props": [],
+        "repeat": "30",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 400,
+        "wires": [["get-vip"]]
+      },
+      {
+        "id": "get-vip",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Query VIP",
+        "func": "msg.topic = \"SELECT id, discord_id, username, vip_until FROM users WHERE vip_until IS NOT NULL ORDER BY vip_until DESC\";\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 350,
+        "y": 400,
+        "wires": [["sqlite-get-vip"]]
+      },
+      {
+        "id": "sqlite-get-vip",
+        "type": "sqlite",
+        "z": "dashboard",
+        "mydb": "/data/scummunitybot.db",
+        "name": "Get VIP",
+        "x": 600,
+        "y": 400,
+        "wires": [["format-vip"]]
+      },
+      {
+        "id": "format-vip",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta VIP",
+        "func": "msg.payload = msg.payload.map(v => ({\n    \"ID\": v.id,\n    \"Discord\": v.discord_id,\n    \"Username\": v.username,\n    \"VIP fino a\": v.vip_until\n}));\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 850,
+        "y": 400,
+        "wires": [["ui-table-vip"]]
+      },
+      {
+        "id": "ui-table-vip",
+        "type": "ui_table",
+        "z": "dashboard",
+        "group": "ui-group-vip",
+        "name": "VIP",
+        "order": 4,
+        "width": "12",
+        "height": "8",
+        "columns": [],
+        "outputs": 0,
+        "x": 1100,
+        "y": 400,
+        "wires": []
+      },
+     
+      {
+        "id": "dashboard-inject-adminlog",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Aggiorna log admin",
+        "props": [],
+        "repeat": "10",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 500,
+        "wires": [["get-admin-logs"]]
+      },
+      {
+        "id": "get-admin-logs",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Query ultimi log",
+        "func": "msg.topic = \"SELECT admin_id, command, timestamp FROM admin_logs ORDER BY timestamp DESC LIMIT 20\";\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 350,
+        "y": 500,
+        "wires": [["sqlite-get-logs"]]
+      },
+      {
+        "id": "sqlite-get-logs",
+        "type": "sqlite",
+        "z": "dashboard",
+        "mydb": "/data/scummunitybot.db",
+        "name": "Get log admin",
+        "x": 600,
+        "y": 500,
+        "wires": [["format-dashboard"]]
+      },
+      {
+        "id": "format-dashboard",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta per dashboard",
+        "func": "msg.payload = msg.payload.map(l => ({\n    \"Admin\": l.admin_id,\n    \"Comando\": l.command,\n    \"Quando\": l.timestamp\n}));\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 850,
+        "y": 500,
+        "wires": [["ui-table-adminlog"]]
+      },
+      {
+        "id": "ui-table-adminlog",
+        "type": "ui_table",
+        "z": "dashboard",
+        "group": "ui-group-adminlog",
+        "name": "Log comandi admin",
+        "order": 5,
+        "width": "12",
+        "height": "8",
+        "columns": [],
+        "outputs": 0,
+        "x": 1100,
+        "y": 500,
+        "wires": []
+      },
+ 
+      {
+        "id": "ui-group-users",
+        "type": "ui_group",
+        "z": "",
+        "name": "Utenti",
+        "tab": "ui-tab-admin",
+        "order": 1,
+        "disp": true,
+        "width": "12"
+      },
+      {
+        "id": "ui-group-trans",
+        "type": "ui_group",
+        "z": "",
+        "name": "Transazioni",
+        "tab": "ui-tab-admin",
+        "order": 2,
+        "disp": true,
+        "width": "12"
+      },
+      {
+        "id": "ui-group-vehicles",
+        "type": "ui_group",
+        "z": "",
+        "name": "Veicoli",
+        "tab": "ui-tab-admin",
+        "order": 3,
+        "disp": true,
+        "width": "12"
+      },
+      {
+        "id": "ui-group-vip",
+        "type": "ui_group",
+        "z": "",
+        "name": "VIP",
+        "tab": "ui-tab-admin",
+        "order": 4,
+        "disp": true,
+        "width": "12"
+      },
+      {
+        "id": "ui-group-adminlog",
+        "type": "ui_group",
+        "z": "",
+        "name": "Log Admin",
+        "tab": "ui-tab-admin",
+        "order": 5,
+        "disp": true,
+        "width": "12"
+      },
+      {
+        "id": "ui-tab-admin",
+        "type": "ui_tab",
+        "z": "",
+        "name": "Admin",
+        "icon": "dashboard",
+        "order": 1
+      },
+     
+      {
+        "id": "inject-api",
+        "type": "inject",
+        "z": "dashboard",
+        "name": "Check server status",
+        "props": [],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 120,
+        "y": 600,
+        "wires": [["http-api-call"]]
+      },
+      {
+        "id": "http-api-call",
+        "type": "http request",
+        "z": "dashboard",
+        "name": "API Hosting",
+        "method": "GET",
+        "ret": "obj",
+        "url": "https://api.pingperfect.com/server/status?apikey={{$env.PINGPERFECT_APIKEY}}&serverid={{$env.PINGPERFECT_SERVERID}}",
+        "x": 350,
+        "y": 600,
+        "wires": [["format-api-response"]]
+      },
+      {
+        "id": "format-api-response",
+        "type": "function",
+        "z": "dashboard",
+        "name": "Formatta risposta",
+        "func": "msg.payload = `Stato server: ${msg.payload.status}`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 600,
+        "y": 600,
+        "wires": [["ui-text-status"]]
+      },
+      {
+        "id": "ui-text-status",
+        "type": "ui_text",
+        "z": "dashboard",
+        "group": "ui-group-hosting",
+        "order": 1,
+        "width": "6",
+        "height": "1",
+        "name": "Stato server"
+      },
+      {
+        "id": "ui-group-hosting",
+        "type": "ui_group",
+        "z": "",
+        "name": "Hosting",
+        "tab": "ui-tab-admin",
+        "order": 6,
+        "disp": true,
+        "width": "6"
+      },
+
+        {
+          "id": "coin-system",
+          "type": "tab",
+          "label": "Coin System",
+          "disabled": false,
+          "info": ""
+        },
+        {
+          "id": "discord-cmd-saldo",
+          "type": "discordMessage",
+          "z": "coin-system",
+          "name": "Comando !saldo",
+          "token": "<INSERISCI_TOKEN_BOT_DISCORD>",
+          "x": 160,
+          "y": 100,
+          "wires": [["check-user"]]
+        },
+        {
+          "id": "check-user",
+          "type": "function",
+          "z": "coin-system",
+          "name": "Estrai Discord ID",
+          "func": "if (msg.content && msg.content.trim() === '!saldo') {\n    msg.topic = \"SELECT coins FROM users WHERE discord_id = ?\";\n    msg.params = [msg.author.id];\n    return msg;\n}\nreturn null;",
+          "outputs": 1,
+          "noerr": 0,
+          "x": 370,
+          "y": 100,
+          "wires": [["sqlite-get-saldo"]]
+        },
+        {
+          "id": "sqlite-get-saldo",
+          "type": "sqlite",
+          "z": "coin-system",
+          "mydb": "/data/scummunitybot.db",
+          "name": "Get Saldo",
+          "x": 600,
+          "y": 100,
+          "wires": [["check-if-registered"]]
+        },
+        {
+          "id": "check-if-registered",
+          "type": "function",
+          "z": "coin-system",
+          "name": "Nuovo utente?",
+          "func": "if (msg.payload && msg.payload.length > 0) {\n    // Utente già registrato\n    msg.isNew = false;\n    msg.coins = msg.payload[0].coins;\n    return [msg, null];\n} else {\n    // Nuovo utente\n    msg.isNew = true;\n    msg.topic = \"INSERT INTO users (discord_id, username, coins) VALUES (?, ?, 100)\";\n    msg.params = [msg.author.id, msg.author.username]; // 100 monete bonus\n    return [null, msg];\n}",
+          "outputs": 2,
+          "noerr": 0,
+          "x": 820,
+          "y": 100,
+          "wires": [["reply-saldo"],["sqlite-insert-user"]]
+        },
+        {
+          "id": "sqlite-insert-user",
+          "type": "sqlite",
+          "z": "coin-system",
+          "mydb": "/data/scummunitybot.db",
+          "name": "Registra nuovo utente",
+          "x": 1100,
+          "y": 140,
+          "wires": [["welcome-msg"]]
+        },
+        {
+          "id": "welcome-msg",
+          "type": "function",
+          "z": "coin-system",
+          "name": "Messaggio benvenuto",
+          "func": "msg.payload = `<@${msg.author.id}> benvenuto! Hai ricevuto 100 monete di benvenuto.`;\nreturn msg;",
+          "outputs": 1,
+          "noerr": 0,
+          "x": 1320,
+          "y": 140,
+          "wires": [["discord-cmd-saldo"]]
+        },
+        {
+          "id": "reply-saldo",
+          "type": "function",
+          "z": "coin-system",
+          "name": "Rispondi con saldo",
+          "func": "if (msg.isNew === false) {\n    msg.payload = `<@${msg.author.id}> hai ${msg.coins} monete.`;\n}\nreturn msg;",
+          "outputs": 1,
+          "noerr": 0,
+          "x": 1100,
+          "y": 100,
+          "wires": [["discord-cmd-saldo"]]
+        },
+
     {
         "id": "e7c83390c801a80d",
         "type": "tab",
@@ -4214,39 +5128,6 @@
         ]
     },
     {
-        "id": "e248c92ab607f364",
-        "type": "differences",
-        "z": "e7c83390c801a80d",
-        "g": "b36a1ae7d14f8198",
-        "name": "",
-        "leftInput": "left",
-        "leftInputType": "msg",
-        "rightInput": "right",
-        "rightInputType": "msg",
-        "func": "-",
-        "outputType": "msg",
-        "output": "payload",
-        "x": 1470,
-        "y": 800,
-        "wires": [
-            [
-                "9cfeebda0480709f",
-                "edec9c71bb1fce3f"
-            ]
-        ]
-    },
-    {
-        "id": "cf5549fb5ce0239e",
-        "type": "comment",
-        "z": "e7c83390c801a80d",
-        "g": "b36a1ae7d14f8198",
-        "name": "Get latest chat log file.",
-        "info": "",
-        "x": 440,
-        "y": 740,
-        "wires": []
-    },
-    {
         "id": "8215dd1fc9665872",
         "type": "split",
         "z": "e7c83390c801a80d",
@@ -4993,32 +5874,6 @@
             [
                 "0b879b5dec9cb04f"
             ]
-        ]
-    },
-    {
-        "id": "c12c335c04b11519",
-        "type": "change",
-        "z": "e7c83390c801a80d",
-        "g": "d31b319e0a98a425",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "oldloginlogs",
-                "pt": "flow",
-                "to": "newloginlogs",
-                "tot": "flow"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 440,
-        "y": 1680,
-        "wires": [
-            []
         ]
     },
     {
@@ -5780,23 +6635,6 @@
         "wires": []
     },
     {
-        "id": "ca025012d053dce4",
-        "type": "link in",
-        "z": "444ae17e1e6afb91",
-        "g": "d943bdc9165c0a7c",
-        "name": "register user",
-        "links": [
-            "d559745eea4ff202"
-        ],
-        "x": 155,
-        "y": 420,
-        "wires": [
-            [
-                "e0453946d36563d4"
-            ]
-        ]
-    },
-    {
         "id": "d559745eea4ff202",
         "type": "link out",
         "z": "e7c83390c801a80d",
@@ -5844,44 +6682,6 @@
             [
                 "e6709cc77734b8c0"
             ]
-        ]
-    },
-    {
-        "id": "e6709cc77734b8c0",
-        "type": "switch",
-        "z": "444ae17e1e6afb91",
-        "g": "d943bdc9165c0a7c",
-        "name": "",
-        "property": "payload.length",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "lt",
-                "v": "1",
-                "vt": "num"
-            },
-            {
-                "t": "eq",
-                "v": "1",
-                "vt": "num"
-            },
-            {
-                "t": "else"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 3,
-        "x": 310,
-        "y": 500,
-        "wires": [
-            [
-                "33f612bcf161341e"
-            ],
-            [
-                "6b736c62f473a481"
-            ],
-            []
         ]
     },
     {
@@ -6569,28 +7369,6 @@
         ]
     },
     {
-        "id": "68c4a3f68c4aef42",
-        "type": "function",
-        "z": "444ae17e1e6afb91",
-        "g": "4d2d08a55c9a69ac",
-        "name": "Not enough FP",
-        "func": "msg.transactionTime = (Date.now() - msg.newPayload.createdTimestamp)/1000 + \" seconds\";\nmsg.payload = \"<@\" + msg.newPayload.discordID + \">\\n```\\nYou have insufficient FP.\\nOrder cost: \" + msg.payload[0].fpCost + \"\\nAvailable FP: \" + msg.newPayload.fame + \"\\nOrder processed in \" + msg.transactionTime + \"```\";\nmsg.action = \"edit\";\nmsg.channel = msg.newPayload.discordMsg.channelID;\nmsg.message = msg.newPayload.discordMsg.id;\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2620,
-        "y": 980,
-        "wires": [
-            [
-                "64d0352688361f73",
-                "b4a47a43a96b9456",
-                "c17ff235349b0b07"
-            ]
-        ]
-    },
-    {
         "id": "ee12473e41df7d1a",
         "type": "function",
         "z": "444ae17e1e6afb91",
@@ -6648,34 +7426,6 @@
         "x": 2610,
         "y": 1060,
         "wires": []
-    },
-    {
-        "id": "e4eee9c05cb37a3b",
-        "type": "change",
-        "z": "444ae17e1e6afb91",
-        "g": "8b891dd4611c028d",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "newPayload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 2700,
-        "y": 600,
-        "wires": [
-            [
-                "d46ef8c103502869"
-            ]
-        ]
     },
     {
         "id": "aa07c2913068413b",
@@ -7448,31 +8198,6 @@
         ]
     },
     {
-        "id": "18d91639341a4f7e",
-        "type": "function",
-        "z": "e7c83390c801a80d",
-        "g": "f13b70955d462e75",
-        "name": "Download Lates Kill Log",
-        "func": "function timeout(ms) {\n    return new Promise(resolve => setTimeout(resolve, ms));\n}\n\nvar dir = flow.get(\"workingDir\");\nvar host = flow.get(\"host\");\nvar port = flow.get(\"port\");\nvar username = flow.get(\"username\");\nvar password = flow.get(\"password\");\n\nconst client = new ftp.Client()\nclient.ftp.verbose = true;\nflow.set(\"tail\", true);\ntry {\n    await client.access({\n        host: host,\n        port: port,\n        user: username,\n        password: password\n    })\n    await client.ensureDir(dir);\n    msg.connection = await(\"Download Kill Log: Connection Open\");\n    while (flow.get(\"tail\")) {\n        var latestLogfileName = flow.get(\"LatestKillFile\");\n        await client.downloadTo(\"LatestKill.log\", latestLogfileName);\n        msg.payload = await(\"Downloaded file.\");\n        node.send(msg);\n        await timeout(2000);\n    }\n}\ncatch (err) {\n    console.log(err)\n    return err;\n}\nclient.close()\nmsg.payload = \"Download Kill Log: Connection Closed.\"\nreturn msg",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [
-            {
-                "var": "ftp",
-                "module": "basic-ftp"
-            }
-        ],
-        "x": 670,
-        "y": 1180,
-        "wires": [
-            [
-                "d10b4e684138237a"
-            ]
-        ]
-    },
-    {
         "id": "20216e30d555c1c3",
         "type": "change",
         "z": "e7c83390c801a80d",
@@ -8130,58 +8855,6 @@
         ]
     },
     {
-        "id": "99a18ec8092a1dd4",
-        "type": "change",
-        "z": "444ae17e1e6afb91",
-        "g": "a385aff966834226",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "UITempPackItemType",
-                "pt": "flow",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 3590,
-        "y": 160,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "7a74cec96c8ef7f8",
-        "type": "change",
-        "z": "444ae17e1e6afb91",
-        "g": "a385aff966834226",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "UITempPackFPCost",
-                "pt": "flow",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 3580,
-        "y": 200,
-        "wires": [
-            []
-        ]
-    },
-    {
         "id": "bba79bf7d7eecca6",
         "type": "change",
         "z": "444ae17e1e6afb91",
@@ -8280,25 +8953,6 @@
                 "f59a1a21cb88911e"
             ]
         ]
-    },
-    {
-        "id": "b709502fa82e7fb6",
-        "type": "ui_toast",
-        "z": "444ae17e1e6afb91",
-        "g": "a385aff966834226",
-        "position": "top right",
-        "displayTime": "4",
-        "highlight": "green",
-        "sendall": true,
-        "outputs": 0,
-        "ok": "OK",
-        "cancel": "",
-        "raw": false,
-        "topic": "",
-        "name": "",
-        "x": 3670,
-        "y": 440,
-        "wires": []
     },
     {
         "id": "b85a03d2b15f6cdd",
@@ -9067,34 +9721,6 @@
         ]
     },
     {
-        "id": "6a4d348a423e1491",
-        "type": "change",
-        "z": "e7c83390c801a80d",
-        "g": "f2e3944ec2e98a49",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "channelIDMines",
-                "tot": "flow"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 2000,
-        "y": 840,
-        "wires": [
-            [
-                "8c3a31adf4cfee8a"
-            ]
-        ]
-    },
-    {
         "id": "c36899829074bf13",
         "type": "change",
         "z": "e7c83390c801a80d",
@@ -9750,23 +10376,6 @@
         "wires": []
     },
     {
-        "id": "4618b7330e7951b0",
-        "type": "debug",
-        "z": "444ae17e1e6afb91",
-        "name": "Join",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "true",
-        "targetType": "full",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1530,
-        "y": 40,
-        "wires": []
-    },
-    {
         "id": "2eeb45a4aca74e7e",
         "type": "debug",
         "z": "444ae17e1e6afb91",
@@ -9879,35 +10488,6 @@
         "wires": [
             [
                 "8e390dd4c4b0c4c3"
-            ]
-        ]
-    },
-    {
-        "id": "4ba7d7b524cf4dd7",
-        "type": "join",
-        "z": "e7c83390c801a80d",
-        "g": "7c72005ea0dd4a7e",
-        "name": "",
-        "mode": "custom",
-        "build": "array",
-        "property": "payload",
-        "propertyType": "msg",
-        "key": "topic",
-        "joiner": "\\n",
-        "joinerType": "str",
-        "accumulate": false,
-        "timeout": "1.5",
-        "count": "",
-        "reduceRight": false,
-        "reduceExp": "",
-        "reduceInit": "",
-        "reduceInitType": "",
-        "reduceFixup": "",
-        "x": 1130,
-        "y": 520,
-        "wires": [
-            [
-                "2ec098f216d0be5a"
             ]
         ]
     },
